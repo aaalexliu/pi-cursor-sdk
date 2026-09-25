@@ -4,13 +4,15 @@ Fork: https://github.com/aaalexliu/pi-cursor-sdk
 
 Upstream: https://github.com/fitchmultz/pi-cursor-sdk
 
-Patch branch: `fix/active-tool-idle-cleanup`.
+Install target: fork `main` (upstream `main` plus the idle-cleanup fix).
+
+Source patch branch: `fix/active-tool-idle-cleanup` (kept for history; prefer installing from fork `main`).
 
 ## What differs
 
 The idle timer checks authoritative pending-call state on both bridges before releasing a live run. Pending calls defer cleanup by another five-minute interval. Explicit release, abort, and the bridge/MCP deadlines still apply. Native replay without pending bridged calls keeps its existing cleanup behavior.
 
-This branch does not include the separate configurable-timeout patch from PR #283. No environment override is needed for this fix.
+This fork does not include the separate configurable-timeout patch from PR #283. No environment override is needed for this fix.
 
 ## Initial experimental validation
 
@@ -20,20 +22,20 @@ The local suite passed 1,510 tests with five skipped. Typechecks, build, package
 
 ## Local checkout
 
-The worktree is `~/dev/pi-cursor-sdk-active-tool-idle-cleanup`. Its shared Git remotes are:
+The main worktree is `~/dev/pi-cursor-sdk`. Shared Git remotes:
 
 - `origin`: upstream `fitchmultz/pi-cursor-sdk`
 - `fork`: `aaalexliu/pi-cursor-sdk`
 
-Keep upstream `main` separate from the patch branch. Do not reset the patch branch to upstream or use GitHub's sync action on it.
+Keep upstream `main` reachable via `origin/main`. Do not use GitHub's sync action in a way that force-resets fork `main` and drops this patch.
 
 ## Bring in upstream changes
 
-Start with a clean worktree:
+Start with a clean main worktree:
 
 ```bash
-cd ~/dev/pi-cursor-sdk-active-tool-idle-cleanup
-git switch fix/active-tool-idle-cleanup
+cd ~/dev/pi-cursor-sdk
+git switch main
 git status --short
 git fetch origin
 git merge --no-commit --no-ff origin/main
@@ -57,17 +59,17 @@ After checks and review pass, if a merge is pending:
 
 ```bash
 git commit -m "Merge upstream main"
-git push fork HEAD:fix/active-tool-idle-cleanup
+git push fork HEAD:main
 ```
 
-When upstream ships an equivalent fix, review the difference and remove this fork patch rather than maintaining two versions of it.
+When upstream ships an equivalent fix, review the difference and drop this fork patch from `main` rather than maintaining two versions of it.
 
 ## Install and update Pi
 
-Install only one Cursor provider at a time. Remove whichever competing package appears in `pi list` (`npm:pi-cursor-sdk` or `npm:@rahularya01/pi-cursor`), then install an exact pushed commit:
+Install only one Cursor provider at a time. Remove whichever competing package appears in `pi list` (`npm:pi-cursor-sdk` or `npm:@rahularya01/pi-cursor`), then install an exact pushed commit from fork `main`:
 
 ```bash
-cd ~/dev/pi-cursor-sdk-active-tool-idle-cleanup
+cd ~/dev/pi-cursor-sdk
 pi install "git:github.com/aaalexliu/pi-cursor-sdk@$(git rev-parse HEAD)"
 ```
 

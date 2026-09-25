@@ -1,6 +1,6 @@
 # pi-cursor-sdk
 
-Fork maintenance and pinned Pi installs: [FORK.md](https://github.com/aaalexliu/pi-cursor-sdk/blob/fix/active-tool-idle-cleanup/FORK.md).
+Fork maintenance and pinned Pi installs: [FORK.md](https://github.com/aaalexliu/pi-cursor-sdk/blob/main/FORK.md).
 
 A pi provider extension that lets pi use Cursor models through the local-by-default `@cursor/sdk` agent runtime, with explicit minimal Cursor Cloud opt-in.
 
