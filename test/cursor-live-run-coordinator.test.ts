@@ -56,6 +56,7 @@ function makeBridgeRun(id: string, pendingPiToolCallIds: string[] = []): CursorP
 		takeQueuedToolRequests: vi.fn(() => []),
 		resolveToolResults: vi.fn().mockResolvedValue(undefined),
 		resolveToolResultsFromContext: vi.fn().mockResolvedValue(undefined),
+		hasPendingToolCalls: vi.fn(() => pending.size > 0),
 		hasPendingPiToolCallId: vi.fn((piToolCallId: string) => pending.has(piToolCallId)),
 		isBridgeMcpToolCall: vi.fn(() => false),
 		setOnToolRequest: vi.fn(),
@@ -259,6 +260,54 @@ describe("cursor live run coordinator", () => {
 		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-1");
 	});
 
+	it.each([
+		{ bridgeKey: "bridgeRun", pendingAtStart: true },
+		{ bridgeKey: "bridgeRun", pendingAtStart: false },
+		{ bridgeKey: "sessionBridgeRun", pendingAtStart: true },
+		{ bridgeKey: "sessionBridgeRun", pendingAtStart: false },
+	] as const)("defers idle disposal for $bridgeKey with pendingAtStart=$pendingAtStart", async ({ bridgeKey, pendingAtStart }) => {
+		vi.useFakeTimers();
+		const { coordinator, abandonSessionAgent } = makeCoordinator({ idleDisposeMs: 10 });
+		const bridge = makeBridgeRun("active-bridge", pendingAtStart ? ["call-1"] : []);
+		const run = startRun(coordinator, {
+			bridgeRun: makeBridgeRun("turn-bridge"),
+			sessionBridgeRun: makeBridgeRun("session-bridge"),
+			[bridgeKey]: bridge,
+		});
+		const cancel = vi.fn().mockResolvedValue(undefined);
+		coordinator.attachSdkRun(run, { cancel });
+
+		coordinator.requestIdleDispose(run);
+		await vi.advanceTimersByTimeAsync(5);
+		vi.mocked(bridge.hasPendingToolCalls).mockReturnValue(true);
+		await vi.advanceTimersByTimeAsync(30);
+		expect(coordinator.count()).toBe(1);
+		expect(run.disposed).toBe(false);
+		expect(cancel).not.toHaveBeenCalled();
+
+		vi.mocked(bridge.hasPendingToolCalls).mockReturnValue(false);
+		await vi.advanceTimersByTimeAsync(5);
+		expect(coordinator.count()).toBe(0);
+		expect(run.disposed).toBe(true);
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-1");
+	});
+
+	it("still disposes idle native replay runs with queued cards", async () => {
+		vi.useFakeTimers();
+		const { coordinator, deleteNativeToolDisplay } = makeCoordinator({ idleDisposeMs: 10 });
+		const run = startRun(coordinator);
+		run.recordedToolDisplayIds.push("native-read");
+		coordinator.queueEvent(run, { type: "tool", tool: makeToolDisplay("native-read") });
+		coordinator.requestIdleDispose(run);
+
+		await vi.advanceTimersByTimeAsync(10);
+
+		expect(coordinator.count()).toBe(0);
+		expect(run.disposed).toBe(true);
+		expect(deleteNativeToolDisplay).toHaveBeenCalledWith("native-read");
+	});
+
 	it("releases successful runs idempotently without abandoning pooled session resources", async () => {
 		vi.useFakeTimers();
 		const { coordinator, deleteNativeToolDisplay, abandonSessionAgent } = makeCoordinator({ idleDisposeMs: 5 });
@@ -289,9 +338,9 @@ describe("cursor live run coordinator", () => {
 		expect(abandonSessionAgent).not.toHaveBeenCalled();
 	});
 
-	it("releases unsuccessful session-bridge runs idempotently and abandons the session agent", async () => {
+	it("explicitly releases pending session-bridge calls and abandons the session agent idempotently", async () => {
 		const { coordinator, deleteNativeToolDisplay, abandonSessionAgent } = makeCoordinator();
-		const sessionBridgeRun = makeBridgeRun("session-bridge");
+		const sessionBridgeRun = makeBridgeRun("session-bridge", ["active-call"]);
 		const run = startRun(coordinator, { bridgeRun: sessionBridgeRun, sessionBridgeRun, scopeKey: "scope-error" });
 		const sdkCancel = vi.fn().mockResolvedValue(undefined);
 		coordinator.attachSdkRun(run, { cancel: sdkCancel });

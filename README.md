@@ -1,5 +1,7 @@
 # pi-cursor-sdk
 
+Fork maintenance and pinned Pi installs: [FORK.md](https://github.com/aaalexliu/pi-cursor-sdk/blob/fix/active-tool-idle-cleanup/FORK.md).
+
 A pi provider extension that lets pi use Cursor models through the local-by-default `@cursor/sdk` agent runtime, with explicit minimal Cursor Cloud opt-in.
 
 Use this extension if you primarily use Cursor models inside pi and want Cursor's SDK agent loop preserved while pi adds native model selection, auth, thinking/context controls, session behavior, replay UI, optional local pi tool bridging, and explicit cloud runs when requested.
@@ -452,6 +454,8 @@ Images from the latest user message are forwarded to Cursor. Historical images a
 
 
 ## Cursor provider tool contract
+
+Live-run idle cleanup does not cancel pending bridged Pi tools. Every five minutes, cleanup checks both the per-run and session bridge; if either has pending calls, it waits another interval. After those calls settle, normal completion or a later idle check releases the run. Explicit abort, shutdown, and bridge/MCP call deadlines still apply. This protects long subagents and unanswered questions from idle cleanup, not from their own timeouts.
 
 See [Cursor tool surfaces in pi](docs/cursor-tool-surfaces.md) for a concise guide to callable vs display-only tools, MCP catalog limits, JSONL ID patterns, and how pi toggles differ from Cursor ambient MCP.
 
