@@ -498,6 +498,10 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			if (state.leased || state.leaseQueue.length > 0) return;
 			state.idleDisposeRequested = false;
 			state.idleDisposeTimer = setTimeout(() => {
+				if (run.bridgeRun?.hasPendingToolCalls() || run.sessionBridgeRun?.hasPendingToolCalls()) {
+					coordinator.requestIdleDispose(run);
+					return;
+				}
 				void coordinator.release(run).catch(() => {
 					// Idle dispose must not leave release failures as unhandled rejections.
 				});

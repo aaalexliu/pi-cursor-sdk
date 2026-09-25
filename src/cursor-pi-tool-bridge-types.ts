@@ -63,6 +63,7 @@ export interface CursorPiToolBridgeRun {
 	takeQueuedToolRequests(): CursorPiBridgeToolRequest[];
 	resolveToolResults(toolResults: readonly ToolResultMessage[]): Promise<void>;
 	resolveToolResultsFromContext(context: Context): Promise<void>;
+	hasPendingToolCalls(): boolean;
 	hasPendingPiToolCallId(piToolCallId: string): boolean;
 	isBridgeMcpToolCall(toolCall: unknown): boolean;
 	setOnToolRequest(handler?: (request: CursorPiBridgeToolRequest) => void): void;
