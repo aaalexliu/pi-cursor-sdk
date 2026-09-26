@@ -574,6 +574,7 @@ describe("streamCursor bridge MCP", () => {
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 			expect(cancel).not.toHaveBeenCalled();
 			expect(mockDispose).not.toHaveBeenCalled();
+
 		} finally {
 			const liveRun = cursorLiveRuns.getActiveForScope();
 			if (liveRun) await cursorLiveRuns.release(liveRun);

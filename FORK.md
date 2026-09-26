@@ -18,7 +18,7 @@ This fork does not include the separate configurable-timeout patch from PR #283.
 
 The owner waived `smoke:platform:all` for the initial fork push and personal install. Doctor could not pass on this host because Crabbox, localhost SSH, Parallels, and exported Cursor auth were unavailable. This is not a release-tested build.
 
-The local suite passed 1,510 tests with five skipped. Typechecks, build, package dry-run, and diff checks passed. Independent code and comment reviews found no issues. The regression uses real MCP transport with mocked Cursor SDK execution. It proves pending calls survive the idle deadline and continue the same SDK run in that test setup, not a live Cursor service run.
+The local suite passed 1,500 tests with six skipped. Typechecks, build, package dry-run, and diff checks passed. Independent code and comment reviews found no issues. The regression uses real MCP transport with mocked Cursor SDK execution. It proves pending calls survive the idle deadline and continue the same SDK run in that test setup, not a live Cursor service run.
 
 ## Local checkout
 
@@ -75,4 +75,4 @@ pi install "git:github.com/aaalexliu/pi-cursor-sdk@$(git rev-parse HEAD)"
 
 Use that install command again after a tested fork update. Pi updates do not advance a pinned Git commit automatically. Reload Pi after the swap. Keep your Cursor SDK API key configuration; Rahul's subscription OAuth credential is not a substitute for an SDK key. Never paste keys into this file or a commit.
 
-To roll back, remove the fork source shown by `pi list`, install `npm:pi-cursor-sdk@0.3.10`, and reload. That upstream version retains the old idle cancellation behavior.
+To roll back, remove the fork source shown by `pi list`, install `npm:pi-cursor-sdk@0.4.0`, and reload. That upstream version retains the old idle cancellation behavior.
