@@ -54,6 +54,24 @@ export function getCursorToolTailGuardText(
 	].filter((line): line is string => line !== undefined).join("\n");
 }
 
+function getCursorToolClaimGuardText(includePiBridgeGuidance: boolean): string {
+	return includePiBridgeGuidance
+		? "Do not claim to have run pi-side or WebSearch/WebFetch work unless Cursor ran an equivalent tool; a pi__* bridge call counts."
+		: "Do not claim to have run pi-side or WebSearch/WebFetch work unless Cursor ran an equivalent tool.";
+}
+
+function getCursorIncrementalOpenerText(includePiBridgeGuidance: boolean): string {
+	return includePiBridgeGuidance
+		? "Continue the conversation with the tools exposed in this run (Cursor SDK/MCP and, when exposed, pi__* bridge tools). Do not list, promise, or call pi tool names from earlier context that are not exposed as pi__* names."
+		: "Continue the conversation with the tools exposed in this run (Cursor SDK/MCP). Do not list, promise, or call pi-only tools from earlier context as if they were available.";
+}
+
+function getCursorOmittedToolCatalogText(includePiBridgeGuidance: boolean): string {
+	return includePiBridgeGuidance
+		? 'Pi tool catalog omitted: pi tool names above are not callable directly. Active pi tools are exposed as pi__* MCP tools; see "Callable tool surfaces" above for the exact names.'
+		: "Pi tool catalog omitted: pi tool names are not callable here; use Cursor SDK/MCP tools exposed in this run.";
+}
+
 function getCursorToolBoundaryText(
 	options: Pick<CursorPromptOptions, "agentMode" | "includePiAskQuestionGuidance"> & { hasToolManifest?: boolean; includePiBridgeGuidance?: boolean } = {},
 ): string {
@@ -65,7 +83,7 @@ function getCursorToolBoundaryText(
 		includePiBridgeGuidance
 			? "For exposed pi bridge tools, call pi__* MCP names, not pi card/history names."
 			: undefined,
-		"Do not claim pi-side or WebSearch/WebFetch tools unless Cursor ran an equivalent tool.",
+		getCursorToolClaimGuardText(includePiBridgeGuidance),
 		includePiAskQuestionGuidance ? "Use pi__cursor_ask_question for material choices if exposed." : undefined,
 		getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance }),
 		"Images: only latest user images are sent; ask to reattach prior images.",
@@ -136,12 +154,17 @@ function formatToolCall(toolCall: ToolCall): string {
 	return `Tool call (${getCursorReplayPromptLabel(toolCall.name)}, call ${toolCall.id}): ${args}`;
 }
 
-function sanitizeSystemPromptForCursor(systemPrompt: string): string {
+function sanitizeSystemPromptForCursor(
+	systemPrompt: string,
+	options: { includePiBridgeGuidance?: boolean } = {},
+): string {
+	const includePiBridgeGuidance = options.includePiBridgeGuidance !== false;
+	const omittedCatalog = getCursorOmittedToolCatalogText(includePiBridgeGuidance);
 	let sanitized = systemPrompt;
 	// Transcript-era Pi wraps its built-in tool catalog/rules in XML sections.
 	sanitized = sanitized.replace(
 		/<tools>\n[\s\S]*?\n\nIn addition to the tools above, you may have access to other custom tools depending on the project\.\n<\/tools>/g,
-		"Pi tool catalog omitted: Cursor can call only Cursor SDK tools exposed in this run.",
+		omittedCatalog,
 	);
 	sanitized = sanitized.replace(
 		/<rules>\n[\s\S]*?\n<\/rules>\n\n(?=<docs>\nPi documentation )/g,
@@ -149,7 +172,7 @@ function sanitizeSystemPromptForCursor(systemPrompt: string): string {
 	);
 	sanitized = sanitized.replace(
 		/Available tools:\n[\s\S]*?\n\nIn addition to the tools above, you may have access to other custom tools depending on the project\.\n\n/g,
-		"Pi tool catalog omitted: Cursor can call only Cursor SDK tools exposed in this run.\n\n",
+		`${omittedCatalog}\n\n`,
 	);
 	sanitized = sanitized.replace(
 		/Guidelines:\n[\s\S]*?\n\nPi documentation /g,
@@ -406,9 +429,8 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 	const latestUserMessageIndex = getLatestUserMessageIndex(messages);
 	const latestUserMessage = latestUserMessageIndex >= 0 ? messages[latestUserMessageIndex] : undefined;
 	const latestUserText = latestUserMessage ? formatMessage(latestUserMessage) : undefined;
-	const sectionsBeforeMessages = [
-		"Continue the conversation using Cursor SDK capabilities only. Do not list, promise, or call pi-only tools from earlier context as if they were available.",
-	];
+	const includePiBridgeGuidance = options.includePiBridgeGuidance !== false;
+	const sectionsBeforeMessages = [getCursorIncrementalOpenerText(includePiBridgeGuidance)];
 	const latestUserMessageSections =
 		latestUserText && latestUserMessageIndex >= 0 ? [{ index: latestUserMessageIndex, text: latestUserText }] : [];
 	const images = extractLatestImages(messages);
@@ -440,7 +462,11 @@ export function buildCursorPrompt(context: Context, options: CursorPromptOptions
 
 	const { systemPrompt } = resolveCursorPiContext(context);
 	if (systemPrompt) {
-		sectionsBeforeMessages.push(`System instructions from pi:\n${sanitizeSystemPromptForCursor(systemPrompt)}`);
+		sectionsBeforeMessages.push(
+			`System instructions from pi:\n${sanitizeSystemPromptForCursor(systemPrompt, {
+				includePiBridgeGuidance: options.includePiBridgeGuidance,
+			})}`,
+		);
 	}
 
 	const messages = normalizePiContextMessages(context.messages);

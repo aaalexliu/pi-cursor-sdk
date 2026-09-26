@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Stop omitted-catalog and incremental prompt wording from reading as a pi-bridge ban when exposed `pi__*` tools remain callable. Bridge-off and cloud prompts stay `pi__`-free.
+
 ## 0.4.0 - 2026-09-26
 
 ### Breaking Changes
