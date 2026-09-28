@@ -246,6 +246,45 @@ describe("cursor-session-agent", () => {
 		expect(replacement.sendState.bootstrapped).toBe(true);
 	});
 
+	it("decides the output-rejection streak on the live busy pool entry and clears it on commit or reset", async () => {
+		const createAgent = vi.fn().mockImplementation(async () => ({
+			agentId: `agent-${createAgent.mock.calls.length}`,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		}));
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+		const context = makeContext([{ role: "user", content: "Write a.txt", timestamp: 1 }]);
+		const otherContext = makeContext([{ role: "user", content: "Write b.txt", timestamp: 1 }]);
+
+		const lease = await acquireSessionCursorAgent(params);
+		lease.trackRunCompletion(new Promise<void>(() => {}));
+		expect(sessionAgentTestUtils.getSessionCursorAgentPoolState(scopeKey).status).toBe("busy");
+
+		expect(lease.rejectSend(context)).toBe("retry");
+		expect(lease.outputRejection).toEqual({ contextFingerprint: computeCursorContextFingerprint(context) });
+		expect(lease.rejectSend(otherContext)).toBe("retry");
+		expect(lease.rejectSend(otherContext)).toBe("exhausted");
+		expect(lease.outputRejection).toBeUndefined();
+
+		expect(lease.rejectSend(context)).toBe("retry");
+		lease.commitSend(context, true);
+		expect(lease.outputRejection).toBeUndefined();
+		expect(lease.rejectSend(context)).toBe("retry");
+
+		await sessionAgentTestUtils.resetSessionCursorAgent(scopeKey);
+		expect(lease.rejectSend(context)).toBe("exhausted");
+		const replacement = await acquireSessionCursorAgent(params);
+		expect(replacement.outputRejection).toBeUndefined();
+		expect(replacement.rejectSend(context)).toBe("retry");
+	});
+
 	it("reacquires instead of returning stale lease after scope reset during idle wait", async () => {
 		const mockDispose1 = vi.fn().mockResolvedValue(undefined);
 		const mockDispose2 = vi.fn().mockResolvedValue(undefined);

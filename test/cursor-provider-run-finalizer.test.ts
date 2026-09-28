@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type Context } from "@earendil-works/pi-ai";
+import type { CursorOutputRejectionDisposition } from "../src/cursor-reply-rejection.js";
 import type { LocalAgentStore, SDKAgent } from "@cursor/sdk";
 import { buildIncompleteCursorToolRunOutcome } from "../src/cursor-incomplete-tool-visibility.js";
 import { CursorRunFinalizer } from "../src/cursor-provider-run-finalizer.js";
@@ -57,11 +58,14 @@ describe("CursorRunFinalizer", () => {
 				created: false,
 				commitSend: () => {},
 				trackRunCompletion,
+				outputRejection: undefined,
+				rejectSend: () => "retry",
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
 			lifecycle: {
 				commitSend: () => {},
 				trackRunCompletion,
+				rejectSend: () => "retry",
 				abandon: async () => {},
 				dispose: async () => {},
 			},
@@ -182,6 +186,8 @@ describe("CursorRunFinalizer", () => {
 					throw new Error("commit failed before terminal event");
 				},
 				trackRunCompletion: () => {},
+				outputRejection: undefined,
+				rejectSend: () => "retry",
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
 			lifecycle: {
@@ -189,6 +195,7 @@ describe("CursorRunFinalizer", () => {
 					throw new Error("commit failed before terminal event");
 				},
 				trackRunCompletion: () => {},
+				rejectSend: () => "retry",
 				abandon: async () => {},
 				dispose: async () => {},
 			},
@@ -243,6 +250,109 @@ describe("CursorRunFinalizer", () => {
 		sdkProcessErrorGuard.dispose();
 	});
 
+	it("rejects printed tool calls as retryable once, then abandons the agent when exhausted", async () => {
+		const dispositions: CursorOutputRejectionDisposition[] = ["retry", "exhausted"];
+		const abandon = vi.fn(async () => {});
+		const commitSend = vi.fn();
+		const context = makeContext();
+		const rejectSend = vi.fn((_context: Context) => dispositions.shift() ?? "exhausted");
+		const runRejectedTurn = async () => {
+			const stream = createAssistantMessageEventStream();
+			const partial = makeAssistantMessage("Tool call(Write, path=a.txt)");
+			const sdkProcessErrorGuard = installCursorSdkProcessErrorGuard();
+			const prepared: CursorProviderTurnPrepareResult = {
+				runtimeTarget: "local",
+				agent: { agentId: "agent-1" } as SDKAgent,
+				cwd: process.cwd(),
+				payload: { text: "hello" },
+				meta: {
+					sendPlan: { mode: "incremental", reason: "incremental", resetAgent: false },
+					prompt: { text: "hello", images: [] },
+					bootstrap: false,
+					promptInputTokens: 7,
+					useNativeToolReplay: false,
+					bridgeEnabled: false,
+					nativeReplayId: "replay-1",
+					agentMode: "agent",
+					modelSelection: { id: "composer-2.5" },
+				},
+				localForce: { value: false, source: "builtin", trustLevel: "builtin" },
+				contextWindowAgentId: "agent-1",
+				textDeltas: [],
+				sessionAgentScopeKey: "scope-1",
+				sessionAgentLease: {
+					scopeKey: "scope-1",
+					poolKey: "pool-1",
+					instanceId: 1,
+					agent: { agentId: "agent-1" } as SDKAgent,
+					store: {} as LocalAgentStore,
+					storeIdentity: { version: 1, stateRoot: "/tmp/store" },
+					sendState: { bootstrapped: true, contextFingerprint: "", incrementalSendCount: 0 },
+					created: false,
+					outputRejection: undefined,
+					commitSend,
+					rejectSend,
+					trackRunCompletion: () => {},
+				} satisfies SessionCursorAgentLease,
+				restoreCursorSdkOutputFilter: () => {},
+				lifecycle: { commitSend, rejectSend, trackRunCompletion: () => {}, abandon, dispose: async () => {} },
+				runtime: {
+					kind: "direct",
+					turnCoordinator: new CursorSdkTurnCoordinator({
+						stream,
+						partial,
+						cwd: process.cwd(),
+						useNativeToolReplay: false,
+						nativeReplayId: "replay-1",
+						textDeltas: [],
+					}),
+				},
+			};
+			const finalizer = new CursorRunFinalizer({
+				runnerParams: { model: makeModel(), context, stream, partial, sdkEventDebugRef: {} },
+				sdkEventDebug: () => undefined,
+				sdkProcessErrorGuard,
+				resolvedApiKey: () => undefined,
+				runtimeTarget: () => prepared.runtimeTarget,
+			});
+			await finalizer.applyTerminalEvent({
+				kind: "direct",
+				prepared,
+				outcome: {
+					kind: "rejected",
+					waitResult: { id: "run-1", status: "finished", result: "", durationMs: 1, model: { id: "composer-2.5" } },
+					incompleteTools: buildIncompleteCursorToolRunOutcome({ status: "finished", assistantTextProduced: true }),
+					verdict: { kind: "printed_tool_calls", lineCount: 1, firstLine: "Tool call(Write, path=a.txt)" },
+				},
+			});
+			sdkProcessErrorGuard.dispose();
+			stream.end();
+			return (await collectAssistantEvents(stream)).map((event) =>
+				event.type === "error" ? { type: event.type, reason: event.reason, errorMessage: event.error.errorMessage } : { type: event.type },
+			);
+		};
+
+		expect(await runRejectedTurn()).toEqual([
+			{
+				type: "error",
+				reason: "error",
+				errorMessage: "Provider returned error: Cursor SDK run failed: model emitted tool calls as text (1 line)",
+			},
+		]);
+		expect(rejectSend.mock.calls).toEqual([[context]]);
+		expect(abandon).not.toHaveBeenCalled();
+
+		expect(await runRejectedTurn()).toEqual([
+			{
+				type: "error",
+				reason: "error",
+				errorMessage: "Cursor model printed tool calls as text twice in a row. The Cursor agent was reset; send your message again.",
+			},
+		]);
+		expect(abandon).toHaveBeenCalledOnce();
+		expect(commitSend).not.toHaveBeenCalled();
+	});
+
 	it("does not reclassify a completed direct turn when debug cleanup fails", async () => {
 		const stream = createAssistantMessageEventStream();
 		const partial = makeAssistantMessage("");
@@ -288,11 +398,14 @@ describe("CursorRunFinalizer", () => {
 				created: true,
 				commitSend: () => {},
 				trackRunCompletion: () => {},
+				outputRejection: undefined,
+				rejectSend: () => "retry",
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
 			lifecycle: {
 				commitSend: () => {},
 				trackRunCompletion: () => {},
+				rejectSend: () => "retry",
 				abandon: async () => {},
 				dispose: async () => {},
 			},

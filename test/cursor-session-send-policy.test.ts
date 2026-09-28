@@ -87,6 +87,49 @@ describe("cursor-session-send-policy", () => {
 		});
 	});
 
+	it("plans a correction when the rejected fingerprint matches, even before bootstrap or after divergence", () => {
+		const context: Context = {
+			messages: [{ role: "user", content: "Write a.txt", timestamp: 1 }],
+		};
+		const outputRejection = { contextFingerprint: computeCursorContextFingerprint(context) };
+		const unbootstrapped = { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 };
+		const diverged = {
+			bootstrapped: true,
+			contextFingerprint: computeCursorContextFingerprint({ messages: [{ role: "user", content: "Other", timestamp: 1 }] }),
+			incrementalSendCount: 0,
+		};
+		const correction = { mode: "correction", resetAgent: false, reason: "output_rejection" };
+
+		expect(planCursorSessionSend(unbootstrapped, context, outputRejection)).toEqual(correction);
+		expect(planCursorSessionSend(diverged, context, outputRejection)).toEqual(correction);
+		expect(planCursorSessionSend(unbootstrapped, context, { contextFingerprint: "stale" })).toEqual({
+			mode: "bootstrap",
+			resetAgent: false,
+			reason: "initial",
+		});
+		expect(planCursorSessionSend(diverged, context, { contextFingerprint: "stale" })).toEqual({
+			mode: "bootstrap",
+			resetAgent: true,
+			reason: "context_divergence",
+		});
+	});
+
+	it("builds a correction prompt without replaying the user message", () => {
+		const context: Context = {
+			messages: [{ role: "user", content: "Write a.txt", timestamp: 1 }],
+		};
+		const prompt = buildCursorSessionSendPrompt(context, {}, {
+			mode: "correction",
+			resetAgent: false,
+			reason: "output_rejection",
+		});
+
+		expect(prompt).toEqual({
+			text: `Your last reply printed tool cards as text. Call the tools instead.\n${getCursorToolTailGuardText()}`,
+			images: [],
+		});
+	});
+
 	it("builds bootstrap and incremental prompts from the send plan", () => {
 		const context: Context = {
 			systemPrompt: "Be helpful.",

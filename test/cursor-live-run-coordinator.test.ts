@@ -312,6 +312,23 @@ describe("cursor live run coordinator", () => {
 		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-error");
 	});
 
+	it.each([
+		{ keepSessionAgent: true, abandonedScopes: [] },
+		{ keepSessionAgent: false, abandonedScopes: [["scope-rejected"]] },
+	])("releases a rejected run with keepSessionAgent=$keepSessionAgent", async ({ keepSessionAgent, abandonedScopes }) => {
+		const { coordinator, abandonSessionAgent } = makeCoordinator();
+		const bridgeRun = makeBridgeRun("rejected-bridge");
+		const run = startRun(coordinator, { bridgeRun, scopeKey: "scope-rejected" });
+
+		coordinator.markRejected(run, "printed tool calls", { keepSessionAgent });
+		await coordinator.release(run);
+
+		expect(run).toMatchObject({ done: true, disposed: true, errorMessage: "printed tool calls" });
+		expect(coordinator.count()).toBe(0);
+		expect(bridgeRun.cancel).toHaveBeenCalledWith("Cursor live run released");
+		expect(abandonSessionAgent.mock.calls).toEqual(abandonedScopes);
+	});
+
 	it("suppresses process-level SDK abort errors while cancelling an abandoned live run", async () => {
 		const { coordinator, abandonSessionAgent } = makeCoordinator();
 		const run = startRun(coordinator, { scopeKey: "scope-abort" });

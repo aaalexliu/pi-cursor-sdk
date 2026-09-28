@@ -85,6 +85,7 @@ export interface CursorLiveRunCoordinator {
 	markFinished(run: CursorLiveRun, finalText: string): void;
 	markCancelled(run: CursorLiveRun, abortMessage?: string): void;
 	markError(run: CursorLiveRun, errorMessage: string): void;
+	markRejected(run: CursorLiveRun, errorMessage: string, options: { keepSessionAgent: boolean }): void;
 	recordSdkTurnEnded(run: CursorLiveRun, usage?: CursorSdkTurnUsage): void;
 	ignoreFutureSdkTurnUsage(run: CursorLiveRun): void;
 	hasSdkTurnEnded(run: CursorLiveRun): boolean;
@@ -154,6 +155,7 @@ interface CursorLiveRunPrivateState {
 	leased: boolean;
 	leaseQueue: LeaseWaiter[];
 	releasing?: Promise<void>;
+	keepSessionAgent?: boolean;
 }
 
 export function hasTrailingUserMessagesAfterToolResults(context: Context): boolean {
@@ -344,6 +346,12 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			run.done = true;
 			notifyProgress(run);
 			coordinator.requestIdleDispose(run);
+		},
+
+		markRejected(run, errorMessage, { keepSessionAgent }): void {
+			if (run.disposed) return;
+			getPrivateState(run).keepSessionAgent = keepSessionAgent;
+			coordinator.markError(run, errorMessage);
 		},
 
 		recordSdkTurnEnded(run, usage): void {
@@ -537,7 +545,7 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 							// cancellation failure should not block session-agent abandonment
 						}
 					}
-					await deps.abandonSessionAgent(run.sessionAgentScopeKey);
+					if (!state.keepSessionAgent) await deps.abandonSessionAgent(run.sessionAgentScopeKey);
 				}
 			})();
 			return state.releasing;

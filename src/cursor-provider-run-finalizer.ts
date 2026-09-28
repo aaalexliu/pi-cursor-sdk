@@ -30,6 +30,7 @@ import type {
 import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { hasUsableText } from "./cursor-record-utils.js";
 import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
+import { formatCursorOutputRejectionMessage } from "./cursor-reply-rejection.js";
 export type CursorTurnTerminalEvent =
 	| {
 			kind: "direct";
@@ -39,11 +40,19 @@ export type CursorTurnTerminalEvent =
 	  }
 	| { kind: "error"; prepared: CursorProviderTurnPrepareResult | undefined; error: unknown };
 
+function rejectedVerdict(outcome: CursorRunOutcome) {
+	if (outcome.kind !== "rejected") {
+		throw new Error(`Cursor run emission was rejected but outcome was ${outcome.kind}.`);
+	}
+	return outcome.verdict;
+}
+
 function applyLiveRunOutcome(
 	outcome: CursorRunOutcome,
 	prepared: LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime },
-	context: CursorProviderTurnRunnerParams["context"],
+	runnerParams: CursorProviderTurnRunnerParams,
 ): void {
+	const { partial, model, context } = runnerParams;
 	if (prepared.runtime.liveRun.disposed) return;
 	const { liveRun } = prepared.runtime;
 	switch (classifyCursorRunEmission(outcome)) {
@@ -52,6 +61,19 @@ function applyLiveRunOutcome(
 			if (prepared.meta.resumeNotice) liveRun.resumeNotice = prepared.meta.resumeNotice;
 			cursorLiveRuns.markFinished(liveRun, outcome.kind === "finished" ? outcome.finalText : "");
 			break;
+		case "rejected": {
+			const verdict = rejectedVerdict(outcome);
+			const disposition = prepared.lifecycle.rejectSend(context);
+			applyCursorUsage(partial, model, context, prepared.meta.promptInputTokens, {
+				runtime: prepared.runtimeTarget,
+				turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
+				billed: prepared.runtime.billedTurnUsage,
+			});
+			cursorLiveRuns.markRejected(liveRun, formatCursorOutputRejectionMessage(disposition, verdict), {
+				keepSessionAgent: disposition === "retry",
+			});
+			break;
+		}
 		case "cancelled":
 			cursorLiveRuns.markCancelled(liveRun, getCursorRunAbortMessage(outcome));
 			break;
@@ -107,7 +129,7 @@ export class CursorRunFinalizer {
 			contextWindowAgentId: liveRun.agent.agentId,
 		})
 			.then(async (finalized) => {
-				applyLiveRunOutcome(finalized.outcome, prepared, runnerParams.context);
+				applyLiveRunOutcome(finalized.outcome, prepared, runnerParams);
 			})
 			.catch((error: unknown) => {
 				this.safeCleanup(() => discardIncompleteTools({ status: "error" }));
@@ -181,6 +203,18 @@ export class CursorRunFinalizer {
 				await prepared.lifecycle.abandon();
 				this.pushTerminalError(partial, "error", outcome.kind === "error" ? outcome.errorMessage : "Cursor SDK run failed.");
 				break;
+			case "rejected": {
+				const verdict = rejectedVerdict(outcome);
+				const disposition = prepared.lifecycle.rejectSend(context);
+				if (disposition === "exhausted") await prepared.lifecycle.abandon();
+				applyCursorUsage(partial, model, context, prepared.meta.promptInputTokens, {
+					runtime: prepared.runtimeTarget,
+					turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
+					billed: prepared.runtime.billedTurnUsage,
+				});
+				this.pushTerminalError(partial, "error", formatCursorOutputRejectionMessage(disposition, verdict));
+				break;
+			}
 			case "finished":
 				prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
 				prepared.runtime.turnCoordinator.flushText(
