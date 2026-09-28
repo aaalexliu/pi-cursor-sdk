@@ -102,6 +102,7 @@ function buildCloudCursorProviderTurnLifecycle(agent: SDKAgent): CursorProviderT
 	return {
 		trackRunCompletion: () => {},
 		commitSend: () => {},
+		rejectSend: () => "retry",
 		abandon: async () => {},
 		dispose: async () => {
 			await agent[Symbol.asyncDispose]?.();
@@ -116,6 +117,7 @@ function buildLocalCursorProviderTurnLifecycle(
 	return {
 		trackRunCompletion: (completion) => lease.trackRunCompletion(completion),
 		commitSend: (context, bootstrapped) => lease.commitSend(context, bootstrapped),
+		rejectSend: (context) => lease.rejectSend(context),
 		abandon: () => abandonSessionCursorAgent(scopeKey),
 		dispose: async () => {},
 	};
@@ -316,7 +318,7 @@ async function prepareCursorLocalProviderTurn(
 				}),
 			};
 		};
-		let sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
+		let sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context, sessionAgentLease.outputRejection);
 		if (sessionAgentLease.created && sessionAgentLease.resumed && sendPlan.mode === "incremental") {
 			sendPlan = { mode: "bootstrap", resetAgent: false, reason: "process_resume" };
 		}
@@ -328,7 +330,7 @@ async function prepareCursorLocalProviderTurn(
 			sessionAgentScopeKey = sessionAgentLease.scopeKey;
 			bridgeToolNames = new Set(sessionAgentLease.bridgeRun?.snapshot.tools.map((tool) => tool.mcpToolName) ?? []);
 			includePiBridgeGuidance = bridgeToolNames.size > 0;
-			sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
+			sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context, sessionAgentLease.outputRejection);
 			promptOptions = buildPromptOptions(sendPlan);
 			prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 		}

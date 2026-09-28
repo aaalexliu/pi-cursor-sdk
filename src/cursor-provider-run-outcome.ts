@@ -12,6 +12,7 @@ import {
 	buildIncompleteCursorToolRunOutcome,
 	type IncompleteCursorToolRunOutcome,
 } from "./cursor-incomplete-tool-visibility.js";
+import { classifyCursorReplyText, type CursorReplyVerdict } from "./cursor-reply-rejection.js";
 
 /** Unified SDK wait() facts consumed by live and direct emission strategies. */
 export type CursorRunOutcome =
@@ -21,6 +22,12 @@ export type CursorRunOutcome =
 			finalText: string;
 			incompleteTools: IncompleteCursorToolRunOutcome;
 			assistantTextProduced: boolean;
+	  }
+	| {
+			kind: "rejected";
+			waitResult: RunResult;
+			incompleteTools: IncompleteCursorToolRunOutcome;
+			verdict: Extract<CursorReplyVerdict, { kind: "printed_tool_calls" }>;
 	  }
 	| {
 			kind: "cancelled";
@@ -130,6 +137,10 @@ export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): 
 		params.planTextCandidate,
 		params.selectFinalTextOptions,
 	);
+	const verdict = classifyCursorReplyText(params.emittedText + finalText);
+	if (verdict.kind === "printed_tool_calls") {
+		return { kind: "rejected", waitResult, incompleteTools, verdict };
+	}
 
 	return {
 		kind: "finished",
@@ -140,12 +151,14 @@ export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): 
 	};
 }
 
-export type CursorRunEmission = "finished" | "cancelled" | "failed";
+export type CursorRunEmission = "finished" | "rejected" | "cancelled" | "failed";
 
 export function classifyCursorRunEmission(outcome: CursorRunOutcome): CursorRunEmission {
 	switch (outcome.kind) {
 		case "finished":
 			return "finished";
+		case "rejected":
+			return "rejected";
 		case "cancelled":
 			return "cancelled";
 		case "error":

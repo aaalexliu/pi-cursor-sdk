@@ -5,6 +5,7 @@ import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { AgentModeOption, SDKImage } from "@cursor/sdk";
 import { CURSOR_PI_BRIDGE_PREFERENCE_TEXT } from "./cursor-bridge-contract.js";
 import { getCursorReplayPromptLabel } from "./cursor-tool-presentation-registry.js";
+import { CURSOR_CORRECTION_TEXT } from "./cursor-reply-rejection.js";
 
 export interface CursorPrompt {
 	text: string;
@@ -168,6 +169,7 @@ function formatMessage(msg: Message): string | undefined {
 			return text ? `User: ${text}` : undefined;
 		}
 		case "assistant": {
+			if (msg.stopReason === "error") return undefined;
 			const blocks = Array.isArray(msg.content) ? msg.content : [{ type: "text" as const, text: String(msg.content) }];
 			const textParts: string[] = [];
 			for (const block of blocks) {
@@ -425,6 +427,10 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 		budgetOptions,
 	);
 	return { text: parts.join(SECTION_SEPARATOR), images };
+}
+
+export function buildCursorCorrectionPrompt(options: CursorPromptOptions = {}): CursorPrompt {
+	return { text: `${CURSOR_CORRECTION_TEXT}\n${getCursorToolTailGuardText(options)}`, images: [] };
 }
 
 export function buildCursorPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {

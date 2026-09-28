@@ -84,6 +84,21 @@ describe("buildCursorPrompt", () => {
 		expect(result.text).toContain("Assistant: Hi there");
 	});
 
+	it("omits errored assistant messages from bootstrap replay", () => {
+		const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+		const ctx: Context = {
+			messages: [
+				{ role: "user", content: "Write a.txt", timestamp: 1 } satisfies UserMessage,
+				{ role: "assistant", content: [{ type: "text", text: "Tool call(Write, path=a.txt)" }], api: "cursor-sdk", provider: "cursor", model: "test", usage, stopReason: "error", errorMessage: "rejected", timestamp: 2 } satisfies AssistantMessage,
+				{ role: "assistant", content: [{ type: "text", text: "Wrote a.txt" }], api: "cursor-sdk", provider: "cursor", model: "test", usage, stopReason: "stop", timestamp: 3 } satisfies AssistantMessage,
+				{ role: "user", content: "Thanks", timestamp: 4 } satisfies UserMessage,
+			],
+		};
+		const result = buildCursorPrompt(ctx);
+		expect(result.text).toContain("User: Write a.txt\n\nAssistant: Wrote a.txt\n\nUser: Thanks");
+		expect(result.text).not.toContain("Tool call(Write");
+	});
+
 	it("defensively formats assistant string content", () => {
 		const ctx: Context = {
 			messages: [

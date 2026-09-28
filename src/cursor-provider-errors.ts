@@ -16,7 +16,7 @@ const NETWORK_CURSOR_SDK_ERROR_MESSAGE =
 	"Network error: Cursor SDK request failed during network or service I/O. Check your connection; pi will retry automatically when auto-retry is enabled.";
 
 // Keep this phrase aligned with pi's agent-level retry classifier (`provider.?returned.?error`).
-const RETRYABLE_CURSOR_RUN_FAILURE_PREFIX = "Provider returned error: Cursor SDK run failed";
+export const RETRYABLE_CURSOR_RUN_FAILURE_PREFIX = "Provider returned error: Cursor SDK run failed";
 
 export type CursorSdkRunFailureSource = Pick<RunResult, "id" | "requestId" | "status" | "durationMs" | "model" | "result" | "error">;
 

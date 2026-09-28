@@ -13,6 +13,7 @@ import {
 	persistCursorSessionAgentResumeHandle,
 } from "./cursor-session-agent-resume.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
+import type { CursorOutputRejection, CursorOutputRejectionDisposition } from "./cursor-reply-rejection.js";
 import { loadCursorSdk, type CursorSdkModule } from "./cursor-sdk-runtime.js";
 import {
 	cursorSessionStoreIdentitiesEqual,
@@ -40,7 +41,9 @@ export interface SessionCursorAgentLease {
 	created: boolean;
 	resumed?: boolean;
 	resumeNotice?: string;
+	readonly outputRejection: CursorOutputRejection | undefined;
 	commitSend(context: Context, bootstrapped: boolean): void;
+	rejectSend(context: Context): CursorOutputRejectionDisposition;
 	trackRunCompletion(completion: Promise<unknown>): void;
 }
 
@@ -49,6 +52,7 @@ interface SessionCursorAgentPoolEntryBase {
 	instanceId: number;
 	scopeKey: string;
 	sendState: SessionCursorAgentSendState;
+	outputRejection?: CursorOutputRejection;
 }
 
 interface SessionCursorAgentCreatingEntry extends SessionCursorAgentPoolEntryBase {
@@ -285,6 +289,34 @@ function bindBridgeToolRequest(
 	entry.bridgeRun?.setOnToolRequest(onBridgeToolRequest);
 }
 
+function getActivePoolEntryForLease(
+	scopeKey: string,
+	poolKey: string,
+	instanceId: number,
+): SessionCursorAgentActiveEntry | undefined {
+	const entry = sessionAgentsByScope.get(scopeKey);
+	if (!isActivePoolEntry(entry)) return undefined;
+	if (entry.poolKey !== poolKey || entry.instanceId !== instanceId) return undefined;
+	return entry;
+}
+
+function rejectSessionAgentSendForLease(
+	scopeKey: string,
+	poolKey: string,
+	instanceId: number,
+	context: Context,
+): CursorOutputRejectionDisposition {
+	const entry = getActivePoolEntryForLease(scopeKey, poolKey, instanceId);
+	if (!entry) return "exhausted";
+	const contextFingerprint = computeCursorContextFingerprint(context);
+	if (entry.outputRejection?.contextFingerprint === contextFingerprint) {
+		entry.outputRejection = undefined;
+		return "exhausted";
+	}
+	entry.outputRejection = { contextFingerprint };
+	return "retry";
+}
+
 function commitSessionAgentSendForLease(
 	scopeKey: string,
 	poolKey: string,
@@ -292,9 +324,9 @@ function commitSessionAgentSendForLease(
 	context: Context,
 	bootstrapped: boolean,
 ): void {
-	const entry = sessionAgentsByScope.get(scopeKey);
-	if (!isActivePoolEntry(entry)) return;
-	if (entry.poolKey !== poolKey || entry.instanceId !== instanceId) return;
+	const entry = getActivePoolEntryForLease(scopeKey, poolKey, instanceId);
+	if (!entry) return;
+	entry.outputRejection = undefined;
 	entry.sendState.bootstrapped = bootstrapped || entry.sendState.bootstrapped;
 	entry.sendState.contextFingerprint = computeCursorContextFingerprint(context);
 	if (bootstrapped) {
@@ -387,6 +419,7 @@ function leaseFromEntry(
 	entry.bridgeRun?.setDebugRecorder(params.debugRecorder);
 	const resumeNotice = entry.resumeNotice;
 	entry.resumeNotice = undefined;
+	const { poolKey, instanceId } = entry;
 	return {
 		scopeKey,
 		poolKey: entry.poolKey,
@@ -399,11 +432,15 @@ function leaseFromEntry(
 		created,
 		resumed: entry.resumed,
 		...(resumeNotice ? { resumeNotice } : {}),
-		commitSend: (context, bootstrapped) => {
-			commitSessionAgentSendForLease(scopeKey, entry.poolKey, entry.instanceId, context, bootstrapped);
+		get outputRejection() {
+			return getActivePoolEntryForLease(scopeKey, poolKey, instanceId)?.outputRejection;
 		},
+		commitSend: (context, bootstrapped) => {
+			commitSessionAgentSendForLease(scopeKey, poolKey, instanceId, context, bootstrapped);
+		},
+		rejectSend: (context) => rejectSessionAgentSendForLease(scopeKey, poolKey, instanceId, context),
 		trackRunCompletion: (completion) => {
-			trackSessionAgentRunCompletionForLease(scopeKey, entry.poolKey, entry.instanceId, completion);
+			trackSessionAgentRunCompletionForLease(scopeKey, poolKey, instanceId, completion);
 		},
 	};
 }

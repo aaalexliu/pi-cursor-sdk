@@ -15,6 +15,7 @@ import type { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinato
 import type { CursorPrompt } from "./context.js";
 import type { CursorResolvedSetting } from "./cursor-config.js";
 import type { CursorSdkTurnUsage } from "./cursor-usage-accounting.js";
+import type { CursorOutputRejectionDisposition } from "./cursor-reply-rejection.js";
 
 export interface CursorProviderTurnRunnerParams {
 	model: Model<Api>;
@@ -58,6 +59,7 @@ interface CursorProviderTurnRuntimeBase {
 export interface CursorProviderTurnLifecycle {
 	trackRunCompletion(completion: Promise<unknown>): void;
 	commitSend(context: Context, bootstrapped: boolean): void;
+	rejectSend(context: Context): CursorOutputRejectionDisposition;
 	abandon(): Promise<void>;
 	dispose(): Promise<void>;
 }
